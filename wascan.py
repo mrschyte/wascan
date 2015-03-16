@@ -80,7 +80,7 @@ class Scanner(object):
                     links = []
 
                     if 'html' in ctype or 'xml' in ctype:
-                        xtree = lxml.html.fromstring(respn.content)
+                        xtree = lxml.html.fromstring(respn.text)
                         links = itertools.chain(links, find_links(xtree, url))
 
                     links = itertools.chain(links, urlprefixes(url))
