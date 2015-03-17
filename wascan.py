@@ -1,110 +1,46 @@
-import lxml.html
-import itertools
-import requests
-import urllib.parse
-import threading
+import argparse
+import scanner
 import sys
-import traceback
 
 from termcolor import colored
 
-from util.files import *
-from util.lists import *
-from util.queue import *
-from util.nhash import *
-from util.urls import *
+from util.files import slurp
+from util.lists import trim
 
-def find_links(tree, url):
-    paths = ['//@href', '//@action', '//@src']
-
-    for path in paths:
-        for href in tree.xpath(path):
-            if urllib.parse.urlparse(href).scheme == '':
-                href = urllib.parse.urljoin(url, href)
-            yield urlnorm(href)
-
-class Scanner(object):
-    def __init__(self, base):
-        self.urls = UniqueQueue()
-        self.urls.norm = urlnorm
-        self.base = base
-
-        self.session = requests.session()
-        self.crawled = {}
-
-        self.urls.put(base)
+class Scanner(scanner.Scanner):
+    def __init__(self, unique=False, brute=False, base=None):
+        scanner.Scanner.__init__(self, base)
+        self.unique = unique
 
     def on_request(self, url):
         sys.stderr.write('%s\r%s\r' % (' '*64, trim(url, 64, '...')))
 
     def on_response(self, response, chash, unique):
-
-        if unique:
-            color = 'green'
+        if self.unique:
+            if unique:
+                print((colored('[%08x]', 'green') + ' %s') % (chash, response.url))
         else:
-            color = 'yellow'
-            
-        print((colored('[%08x]', color) + ' %s') % (chash, response.url))
+            if unique:
+                color = 'green'
+            else:
+                color = 'yellow'
 
-    def add_crawled(self, chash, url):
-        if chash not in self.crawled:
-            self.crawled[chash] = set()
+            print((colored('[%08x]', color) + ' %s') % (chash, response.url))
 
-        self.crawled[chash].add(url)
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Web Application Scanner')
+    parser.add_argument('target', metavar='target', type=str, help='target url to scan')
+    parser.add_argument('-u', '--unique', action='store_true', help='print only unique content')
+    parser.add_argument('-b', '--brute', action='store_true', help='bruteforce urls')
+    parser.add_argument('-w', metavar='path', help='set the wordlist to use', default='wordlists/directory-list-2.3-small.txt')
 
-    def was_crawled(self, chash):
-        return chash in self.crawled
+    args = parser.parse_args()
+    s = Scanner(args.unique)
 
-    def scan(self, url=None, words=None):
+    if args.brute:
+        wordlist = slurp(args.w)
+    else:
+        wordlist = None
+    
+    s.scan(url=args.target, wordlist=wordlist)
 
-        if url != None:
-            self.urls.put(url)
-
-        if words == None:
-            words = []
-        
-        while not self.urls.empty():
-            
-            try:
-                url = self.urls.get()
-                self.on_request(url)
-
-                respn = self.session.get(url)
-                chash = simhash(respn.content)
-
-                if respn.ok:
-                    self.on_response(response=respn, chash=chash, unique=(not self.was_crawled(chash)))
-                    self.add_crawled(chash, respn.url)
-
-                    ctype = respn.headers.get('content-type')
-                    links = []
-
-                    if 'html' in ctype or 'xml' in ctype:
-                        xtree = lxml.html.fromstring(respn.text)
-                        links = itertools.chain(links, find_links(xtree, url))
-
-                    links = itertools.chain(links, urlprefixes(url))
-
-                    for link in links:
-                        if urlbase(self.base, link):
-                            self.urls.put(link)
-
-            except Exception as ex:
-                # traceback.print_exc()
-                pass
-
-        # do bruteforce passes
-        m = len(wordlist)
-        n = 0
-
-        while m != n:
-            m = len(self.crawled.values())
-            for path in set(flatten(self.crawled.values())):
-                for word in words:
-                    self.scan(urllib.parse.urljoin(path, word), [])
-            n = len(self.crawled.values())
-        
-wordlist = slurp('wordlists/directory-list-2.3-small.txt')
-# wordlist = ['a','b','c','d','e','f']
-s = Scanner(sys.argv[1])
-s.scan(words=wordlist)
