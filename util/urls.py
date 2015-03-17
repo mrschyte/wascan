@@ -7,8 +7,9 @@ def urlnorm(url):
     u = urllib.parse.urlparse(urltools.normalize(url))
     path = u.path
 
-    if path[-1] == '/':
-        path = path[:-1]
+    if len(path) > 0:
+        if path[-1] == '/':
+            path = path[:-1]
 
     v = (u.scheme, u.netloc, path, u.params, '', '')
     return urllib.parse.urlunparse(v)
